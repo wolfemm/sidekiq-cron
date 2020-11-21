@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # require cron poller
 require 'sidekiq/cron/poller'
 

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'fugit'
 require 'sidekiq'
 require 'sidekiq/util'
