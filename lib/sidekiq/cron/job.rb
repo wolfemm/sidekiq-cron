@@ -494,18 +494,15 @@ module Sidekiq
       #   first arg: name (string) - name of job (must be same - case sensitive)
       def destroy
         Sidekiq.redis do |conn|
-          #delete from set
-          conn.srem self.class.jobs_key, redis_key
+          conn.pipelined do
+            #delete from set
+            conn.srem(self.class.jobs_key, redis_key)
 
-          #delete runned timestamps
-          conn.del job_enqueued_key
-
-          # delete jid_history
-          conn.del jid_history_key
-
-          #delete main job
-          conn.del redis_key
+            #delete runned timestamps, jid_history_key and the job itself
+            conn.unlink(job_enqueued_key, jid_history_key, redis_key)
+          end
         end
+
         logger.info { "Cron Jobs - deleted job with name: #{@name}" }
       end
 
