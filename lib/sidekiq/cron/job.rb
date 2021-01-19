@@ -632,7 +632,7 @@ module Sidekiq
       # Give Hash
       # returns array for using it for redis.hmset
       def hash_to_redis hash
-        hash.inject([]){ |arr,kv| arr + [kv[0], kv[1]] }
+        hash.each_with_object([]) { |pair, arr| arr << pair }
       end
 
       def self.resolve_name(name)
