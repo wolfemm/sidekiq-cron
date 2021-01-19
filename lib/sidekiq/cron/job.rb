@@ -13,14 +13,12 @@ module Sidekiq
 
       #crucial part of whole enquing job
       def should_enque?(time)
-        enqueue = false
-        enqueue = Sidekiq.redis do |conn|
-          status == Status::ENABLED &&
-            not_past_scheduled_time?(time) &&
-            not_enqueued_after?(time) &&
+        status == Status::ENABLED &&
+          not_past_scheduled_time?(time) &&
+          not_enqueued_after?(time) &&
+          Sidekiq.redis do |conn|
             conn.zadd(job_enqueued_key, formated_enqueue_time(time), formated_last_time(time))
-        end
-        enqueue
+          end
       end
 
       # remove previous informations about run times
