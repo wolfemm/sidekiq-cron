@@ -12,7 +12,7 @@ module Sidekiq
       extend Util
 
       #crucial part of whole enquing job
-      def should_enque? time
+      def should_enque?(time)
         enqueue = false
         enqueue = Sidekiq.redis do |conn|
           status == Status::ENABLED &&
@@ -179,12 +179,10 @@ module Sidekiq
       # ]
       #
       def self.load_from_array(array)
-        errors = {}
-        array.each do |job_data|
+        array.each_with_object({}) do |job_data, errors|
           job = new(job_data)
           errors[job.name] = job.errors unless job.save
         end
-        errors
       end
 
       # like to {#load_from_array}
@@ -220,14 +218,14 @@ module Sidekiq
         out
       end
 
-      def self.find name
+      def self.find(name)
         #if name is hash try to get name from it
         name = resolve_name(name)
 
         output = nil
         Sidekiq.redis do |conn|
-          if exists? name
-            output = Job.new conn.hgetall(redis_key(name))
+          if exists?(name)
+            output = Job.new(conn.hgetall(redis_key(name)))
           end
         end
         output
@@ -426,11 +424,12 @@ module Sidekiq
 
       def klass_valid
         case @klass
-          when Class
-            true
-          when String
-            @klass.size > 0
-          else
+        when Class
+          true
+        when String
+          @klass.size > 0
+        else
+          false
         end
       end
 
@@ -528,14 +527,14 @@ module Sidekiq
         last_time(now).getutc.iso8601
       end
 
-      def self.exists? name
+      def self.exists?(name)
         Sidekiq.redis do |conn|
           conn.exists?(redis_key(name))
         end
       end
 
       def exists?
-        self.class.exists? @name
+        self.class.exists?(@name)
       end
 
       def sort_name
@@ -593,7 +592,7 @@ module Sidekiq
       end
 
       # Redis key for storing one cron job
-      def self.redis_key name
+      def self.redis_key(name)
         "cron_job:#{name}"
       end
 
