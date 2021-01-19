@@ -214,13 +214,7 @@ module Sidekiq
         #if name is hash try to get name from it
         name = resolve_name(name)
 
-        output = nil
-        Sidekiq.redis do |conn|
-          if exists?(name)
-            output = Job.new(conn.hgetall(redis_key(name)))
-          end
-        end
-        output
+        Sidekiq.redis { |conn| Job.new(conn.hgetall(redis_key(name))) } if exists?(name)
       end
 
       # create new instance of cron job
