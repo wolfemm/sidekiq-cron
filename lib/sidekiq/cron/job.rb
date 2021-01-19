@@ -207,11 +207,7 @@ module Sidekiq
       end
 
       def self.count
-        out = 0
-        Sidekiq.redis do |conn|
-          out = conn.scard(jobs_key)
-        end
-        out
+        Sidekiq.redis { |conn| conn.scard(jobs_key) }
       end
 
       def self.find(name)
