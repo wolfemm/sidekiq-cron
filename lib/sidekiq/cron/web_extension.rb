@@ -3,13 +3,11 @@
 module Sidekiq
   module Cron
     module WebExtension
-
       def self.registered(app)
-
         app.settings.locales << File.join(File.expand_path("..", __FILE__), "locales")
 
         #index page of cron jobs
-        app.get '/cron' do
+        app.get('/cron') do
           view_path    = File.join(File.expand_path("..", __FILE__), "views")
 
           @cron_jobs = Sidekiq::Cron::Job.all
@@ -23,7 +21,7 @@ module Sidekiq
         end
 
         # display job detail + jid history
-        app.get '/cron/:name' do
+        app.get('/cron/:name') do
           view_path = File.join(File.expand_path("..", __FILE__), "views")
 
           @job = Sidekiq::Cron::Job.find(route_params[:name])
@@ -40,7 +38,7 @@ module Sidekiq
         end
 
         #enque cron job
-        app.post '/cron/:name/enque' do
+        app.post('/cron/:name/enque') do
           if route_params[:name] === '__all__'
             Sidekiq::Cron::Job.all.each(&:enque!)
           elsif job = Sidekiq::Cron::Job.find(route_params[:name])
@@ -50,7 +48,7 @@ module Sidekiq
         end
 
         #delete schedule
-        app.post '/cron/:name/delete' do
+        app.post('/cron/:name/delete') do
           if route_params[:name] === '__all__'
             Sidekiq::Cron::Job.all.each(&:destroy)
           elsif job = Sidekiq::Cron::Job.find(route_params[:name])
@@ -60,7 +58,7 @@ module Sidekiq
         end
 
         #enable job
-        app.post '/cron/:name/enable' do
+        app.post('/cron/:name/enable') do
           if route_params[:name] === '__all__'
             Sidekiq::Cron::Job.all.each(&:enable!)
           elsif job = Sidekiq::Cron::Job.find(route_params[:name])
@@ -70,7 +68,7 @@ module Sidekiq
         end
 
         #disable job
-        app.post '/cron/:name/disable' do
+        app.post('/cron/:name/disable') do
           if route_params[:name] === '__all__'
             Sidekiq::Cron::Job.all.each(&:disable!)
           elsif job = Sidekiq::Cron::Job.find(route_params[:name])
@@ -78,7 +76,6 @@ module Sidekiq
           end
           redirect params['redirect'] || "#{root_path}cron"
         end
-
       end
     end
   end

@@ -26,14 +26,14 @@ module Sidekiq
       # remove previous informations about run times
       # this will clear redis and make sure that redis will
       # not overflow with memory
-      def remove_previous_enques time
+      def remove_previous_enques(time)
         Sidekiq.redis do |conn|
           conn.zremrangebyscore(job_enqueued_key, 0, "(#{(time.to_f - REMEMBER_THRESHOLD).to_s}")
         end
       end
 
       #test if job should be enqued If yes add it to queue
-      def test_and_enque_for_time! time
+      def test_and_enque_for_time!(time)
         #should this job be enqued?
         if should_enque?(time)
           enque!
@@ -43,7 +43,7 @@ module Sidekiq
       end
 
       #enque cron job to queue
-      def enque! time = Time.now.utc
+      def enque!(time = Time.now.utc)
         @last_enqueue_time = time.strftime(LAST_ENQUEUE_TIME_FORMAT)
 
         klass_const =
@@ -56,7 +56,7 @@ module Sidekiq
         jid =
           if klass_const
             if defined?(ActiveJob::Base) && klass_const < ActiveJob::Base
-              enqueue_active_job(klass_const).try :provider_job_id
+              enqueue_active_job(klass_const)&.provider_job_id
             else
               enqueue_sidekiq_worker(klass_const)
             end
@@ -69,7 +69,7 @@ module Sidekiq
           end
 
         save_last_enqueue_time
-        add_jid_history jid
+        add_jid_history(jid)
         logger.debug { "enqueued #{@name}: #{@message}" }
       end
 
@@ -146,17 +146,17 @@ module Sidekiq
       #   }
       # }
       #
-      def self.load_from_hash hash
-        array = hash.inject([]) do |out,(key, job)|
+      def self.load_from_hash(hash)
+        array = hash.inject([]) do |out, (key, job)|
           job[Key::NAME] = key
           out << job
         end
-        load_from_array array
+        load_from_array(array)
       end
 
       # like to {#load_from_hash}
       # If exists old jobs in redis but removed from args, destroy old jobs
-      def self.load_from_hash! hash
+      def self.load_from_hash!(hash)
         destroy_removed_jobs(hash.keys)
         load_from_hash(hash)
       end
@@ -178,7 +178,7 @@ module Sidekiq
       #   }
       # ]
       #
-      def self.load_from_array array
+      def self.load_from_array(array)
         errors = {}
         array.each do |job_data|
           job = new(job_data)
@@ -189,7 +189,7 @@ module Sidekiq
 
       # like to {#load_from_array}
       # If exists old jobs in redis but removed from args, destroy old jobs
-      def self.load_from_array! array
+      def self.load_from_array!(array)
         job_names = array.map { |job| job[Key::NAME] }
         destroy_removed_jobs(job_names)
         load_from_array(array)
@@ -227,19 +227,19 @@ module Sidekiq
         output = nil
         Sidekiq.redis do |conn|
           if exists? name
-            output = Job.new conn.hgetall( redis_key(name) )
+            output = Job.new conn.hgetall(redis_key(name))
           end
         end
         output
       end
 
       # create new instance of cron job
-      def self.create hash
+      def self.create(hash)
         new(hash).save
       end
 
       #destroy job by name
-      def self.destroy name
+      def self.destroy(name)
         #if name is hash try to get name from it
         name = resolve_name(name)
 
@@ -253,8 +253,8 @@ module Sidekiq
       attr_accessor :name, :cron, :description, :klass, :args, :message
       attr_reader   :last_enqueue_time, :fetch_missing_args
 
-      def initialize input_args = {}
-        args = Hash[input_args.map{ |k, v| [k.to_s, v] }]
+      def initialize(input_args = {})
+        args = Hash[input_args.map { |k, v| [k.to_s, v] }]
         @fetch_missing_args = args.delete(Key::FETCH_MISSING_ARGS)
         @fetch_missing_args = true if @fetch_missing_args.nil?
 
@@ -278,7 +278,7 @@ module Sidekiq
         end
 
         #get right arguments for job
-        @args = args[Key::ARGS].nil? ? [] : parse_args( args[Key::ARGS] )
+        @args = args[Key::ARGS].nil? ? [] : parse_args(args[Key::ARGS])
         @args += [Time.now.to_f] if args[Key::DATE_AS_ARGUMENT]
 
         @active_job = TRUTHY_VALUES.include?(args[Key::ACTIVE_JOB])
@@ -348,7 +348,7 @@ module Sidekiq
       end
 
       def pretty_message
-        JSON.pretty_generate Sidekiq.load_json(message)
+        JSON.pretty_generate(Sidekiq.load_json(message))
       rescue JSON::ParserError
         message
       end
@@ -357,7 +357,7 @@ module Sidekiq
         out = Status::ENABLED
         if fetch_missing_args
           Sidekiq.redis do |conn|
-            status = conn.hget redis_key, Key::STATUS
+            status = conn.hget(redis_key, Key::STATUS)
             out = status if status
           end
         end
@@ -375,14 +375,13 @@ module Sidekiq
       end
 
       def jid_history_from_redis
-        out =
-          Sidekiq.redis do |conn|
-            conn.lrange(jid_history_key, 0, -1) rescue nil
-          end
+        out = Sidekiq.redis do |conn|
+          conn.lrange(jid_history_key, 0, -1) rescue nil
+        end
 
         # returns nil if out nil
         out && out.map do |jid_history_raw|
-          Sidekiq.load_json jid_history_raw
+          Sidekiq.load_json(jid_history_raw)
         end
       end
 
@@ -451,12 +450,11 @@ module Sidekiq
         return false unless valid?
 
         Sidekiq.redis do |conn|
-
           #add to set of all jobs
-          conn.sadd self.class.jobs_key, redis_key
+          conn.sadd(self.class.jobs_key, redis_key)
 
           #add informations for this job!
-          conn.hmset redis_key, *hash_to_redis(to_hash)
+          conn.hmset(redis_key, *hash_to_redis(to_hash))
 
           #add information about last time! - don't enque right after scheduler poller starts!
           time = Time.now.utc
@@ -468,7 +466,7 @@ module Sidekiq
       def save_last_enqueue_time
         Sidekiq.redis do |conn|
           # update last enqueue time
-          conn.hset redis_key, Key::LAST_ENQUEUE_TIME, @last_enqueue_time
+          conn.hset(redis_key, Key::LAST_ENQUEUE_TIME, @last_enqueue_time)
         end
       end
 
@@ -479,10 +477,9 @@ module Sidekiq
         }
         @history_size ||= (Sidekiq.options[:cron_history_size] || 10).to_i - 1
         Sidekiq.redis do |conn|
-          conn.lpush jid_history_key,
-                     Sidekiq.dump_json(jid_history)
+          conn.lpush(jid_history_key, Sidekiq.dump_json(jid_history))
           # keep only last 10 entries in a fifo manner
-          conn.ltrim jid_history_key, 0, @history_size
+          conn.ltrim(jid_history_key, 0, @history_size)
         end
       end
 
@@ -521,15 +518,15 @@ module Sidekiq
 
       # Parse cron specification '* * * * *' and returns
       # time when last run should be performed
-      def last_time now = Time.now.utc
+      def last_time(now = Time.now.utc)
         parsed_cron.previous_time(now.utc).utc
       end
 
-      def formated_enqueue_time now = Time.now.utc
+      def formated_enqueue_time(now = Time.now.utc)
         last_time(now).getutc.to_f.to_s
       end
 
-      def formated_last_time now = Time.now.utc
+      def formated_last_time(now = Time.now.utc)
         last_time(now).getutc.iso8601
       end
 
@@ -606,27 +603,27 @@ module Sidekiq
 
       # Redis key for storing one cron job
       def redis_key
-        self.class.redis_key @name
+        self.class.redis_key(@name)
       end
 
       # Redis key for storing one cron job run times
       # (when poller added job to queue)
-      def self.job_enqueued_key name
+      def self.job_enqueued_key(name)
         "cron_job:#{name}:enqueued"
       end
 
-      def self.jid_history_key name
+      def self.jid_history_key(name)
         "cron_job:#{name}:jid_history"
       end
 
       # Redis key for storing one cron job run times
       # (when poller added job to queue)
       def job_enqueued_key
-        self.class.job_enqueued_key @name
+        self.class.job_enqueued_key(@name)
       end
 
       def jid_history_key
-        self.class.jid_history_key @name
+        self.class.jid_history_key(@name)
       end
 
       # Give Hash
