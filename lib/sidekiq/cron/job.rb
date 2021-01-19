@@ -11,17 +11,11 @@ module Sidekiq
       include Util
       extend Util
 
-      #how long we would like to store informations about previous enqueues
-      REMEMBER_THRESHOLD = 24 * 60 * 60
-      LAST_ENQUEUE_TIME_FORMAT = '%Y-%m-%d %H:%M:%S %z'
-
-      TRUTHY_VALUES = Set[true, "true", "t", "yes", "y", "1", 1].freeze
-
       #crucial part of whole enquing job
       def should_enque? time
         enqueue = false
         enqueue = Sidekiq.redis do |conn|
-          status == "enabled" &&
+          status == Status::ENABLED &&
             not_past_scheduled_time?(time) &&
             not_enqueued_after?(time) &&
             conn.zadd(job_enqueued_key, formated_enqueue_time(time), formated_last_time(time))
@@ -106,7 +100,7 @@ module Sidekiq
         elsif defined?(ActiveJob::Base) && defined?(ActiveJob::Base.queue_name_delimiter) && !ActiveJob::Base.queue_name_delimiter.empty?
           queue_name_delimiter = ActiveJob::Base.queue_name_delimiter
         else
-          queue_name_delimiter = '_'
+          queue_name_delimiter = FALLBACK_QUEUE_NAME_DELIMITER
         end
 
         if !"#{@active_job_queue_name_prefix}".empty?
@@ -124,15 +118,15 @@ module Sidekiq
       # queue, it createaswrapper arround job
       def active_job_message
         {
-          'class'        => 'ActiveJob::QueueAdapters::SidekiqAdapter::JobWrapper',
-          'wrapped'      => @klass,
-          'queue'        => @queue_name_with_prefix,
-          'description'  => @description,
-          'args'         => [{
-            'job_class'  => @klass,
-            'job_id'     => SecureRandom.uuid,
-            'queue_name' => @queue_name_with_prefix,
-            'arguments'  => @args
+          Key::CLASS        => 'ActiveJob::QueueAdapters::SidekiqAdapter::JobWrapper',
+          Key::WRAPPED      => @klass,
+          Key::QUEUE        => @queue_name_with_prefix,
+          Key::DESCRIPTION  => @description,
+          Key::ARGS         => [{
+            Key::JOB_CLASS  => @klass,
+            Key::JOB_ID     => SecureRandom.uuid,
+            Key::QUEUE_NAME => @queue_name_with_prefix,
+            Key::ARGUMENTS  => @args
           }]
         }
       end
@@ -154,7 +148,7 @@ module Sidekiq
       #
       def self.load_from_hash hash
         array = hash.inject([]) do |out,(key, job)|
-          job['name'] = key
+          job[Key::NAME] = key
           out << job
         end
         load_from_array array
@@ -196,7 +190,7 @@ module Sidekiq
       # like to {#load_from_array}
       # If exists old jobs in redis but removed from args, destroy old jobs
       def self.load_from_array! array
-        job_names = array.map { |job| job["name"] }
+        job_names = array.map { |job| job[Key::NAME] }
         destroy_removed_jobs(job_names)
         load_from_array(array)
       end
@@ -228,7 +222,7 @@ module Sidekiq
 
       def self.find name
         #if name is hash try to get name from it
-        name = name[:name] || name['name'] if name.is_a?(Hash)
+        name = resolve_name(name)
 
         output = nil
         Sidekiq.redis do |conn|
@@ -247,7 +241,7 @@ module Sidekiq
       #destroy job by name
       def self.destroy name
         #if name is hash try to get name from it
-        name = name[:name] || name['name'] if name.is_a?(Hash)
+        name = resolve_name(name)
 
         if job = find(name)
           job.destroy
@@ -261,21 +255,21 @@ module Sidekiq
 
       def initialize input_args = {}
         args = Hash[input_args.map{ |k, v| [k.to_s, v] }]
-        @fetch_missing_args = args.delete('fetch_missing_args')
+        @fetch_missing_args = args.delete(Key::FETCH_MISSING_ARGS)
         @fetch_missing_args = true if @fetch_missing_args.nil?
 
-        @name = args["name"]
-        @cron = args["cron"]
-        @description = args["description"] if args["description"]
+        @name = args[Key::NAME]
+        @cron = args[Key::CRON]
+        @description = args[Key::DESCRIPTION] if args[Key::DESCRIPTION]
 
         #get class from klass or class
-        @klass = args["klass"] || args["class"]
+        @klass = args[Key::KLASS] || args[Key::CLASS]
 
         #set status of job
-        @status = args['status'] || status_from_redis
+        @status = args[Key::STATUS] || status_from_redis
 
         #set last enqueue time - from args or from existing job
-        last_enqueue_time = args['last_enqueue_time']
+        last_enqueue_time = args[Key::LAST_ENQUEUE_TIME]
 
         if last_enqueue_time && !last_enqueue_time.empty?
           @last_enqueue_time = parse_enqueue_time(last_enqueue_time)
@@ -284,21 +278,21 @@ module Sidekiq
         end
 
         #get right arguments for job
-        @args = args["args"].nil? ? [] : parse_args( args["args"] )
-        @args += [Time.now.to_f] if args["date_as_argument"]
+        @args = args[Key::ARGS].nil? ? [] : parse_args( args[Key::ARGS] )
+        @args += [Time.now.to_f] if args[Key::DATE_AS_ARGUMENT]
 
-        @active_job = TRUTHY_VALUES.include?(args["active_job"])
-        @active_job_queue_name_prefix = args["queue_name_prefix"]
-        @active_job_queue_name_delimiter = args["queue_name_delimiter"]
+        @active_job = TRUTHY_VALUES.include?(args[Key::ACTIVE_JOB])
+        @active_job_queue_name_prefix = args[Key::QUEUE_NAME_PREFIX]
+        @active_job_queue_name_delimiter = args[Key::QUEUE_NAME_DELIMITER]
 
-        if args["message"]
-          @message = args["message"]
+        if args[Key::MESSAGE]
+          @message = args[Key::MESSAGE]
           message_data = Sidekiq.load_json(@message) || {}
-          @queue = message_data['queue'] || "default"
+          @queue = message_data[Key::QUEUE] || DEFAULT_QUEUE
         elsif @klass
           message_data = {
-            "class" => @klass.to_s,
-            "args"  => @args,
+            Key::CLASS => @klass.to_s,
+            Key::ARGS  => @args,
           }
 
           #get right data for message
@@ -311,17 +305,17 @@ module Sidekiq
                 Sidekiq::Cron::Support.constantize(@klass).get_sidekiq_options
               rescue Exception => e
                 #Unknown class
-                {"queue"=>"default"}
+                { Key::QUEUE => DEFAULT_QUEUE }
               end
           end
 
           message_data = klass_data.merge(message_data)
           #override queue if setted in config
           #only if message is hash - can be string (dumped JSON)
-          if args['queue']
-            @queue = message_data['queue'] = args['queue']
+          if args[Key::QUEUE]
+            @queue = message_data[Key::QUEUE] = args[Key::QUEUE]
           else
-            @queue = message_data['queue'] || "default"
+            @queue = message_data[Key::QUEUE] || DEFAULT_QUEUE
           end
 
           #dump message as json
@@ -336,17 +330,17 @@ module Sidekiq
       end
 
       def disable!
-        @status = "disabled"
+        @status = Status::DISABLED
         save
       end
 
       def enable!
-        @status = "enabled"
+        @status = Status::ENABLED
         save
       end
 
       def enabled?
-        @status == "enabled"
+        @status == Status::ENABLED
       end
 
       def disabled?
@@ -360,10 +354,10 @@ module Sidekiq
       end
 
       def status_from_redis
-        out = "enabled"
+        out = Status::ENABLED
         if fetch_missing_args
           Sidekiq.redis do |conn|
-            status = conn.hget redis_key, "status"
+            status = conn.hget redis_key, Key::STATUS
             out = status if status
           end
         end
@@ -374,7 +368,7 @@ module Sidekiq
         out = nil
         if fetch_missing_args
           Sidekiq.redis do |conn|
-            out = parse_enqueue_time(conn.hget(redis_key, "last_enqueue_time")) rescue nil
+            out = parse_enqueue_time(conn.hget(redis_key, Key::LAST_ENQUEUE_TIME)) rescue nil
           end
         end
         out
@@ -395,17 +389,17 @@ module Sidekiq
       #export job data to hash
       def to_hash
         {
-          name: @name,
-          klass: @klass,
-          cron: @cron,
-          description: @description,
-          args: @args.is_a?(String) ? @args : Sidekiq.dump_json(@args || []),
-          message: @message.is_a?(String) ? @message : Sidekiq.dump_json(@message || {}),
-          status: @status,
-          active_job: @active_job,
-          queue_name_prefix: @active_job_queue_name_prefix,
-          queue_name_delimiter: @active_job_queue_name_delimiter,
-          last_enqueue_time: @last_enqueue_time,
+          Key::NAME => @name,
+          Key::KLASS => @klass,
+          Key::CRON => @cron,
+          Key::DESCRIPTION => @description,
+          Key::ARGS => @args.is_a?(String) ? @args : Sidekiq.dump_json(@args || []),
+          Key::MESSAGE => @message.is_a?(String) ? @message : Sidekiq.dump_json(@message || {}),
+          Key::STATUS => @status,
+          Key::ACTIVE_JOB => @active_job,
+          Key::QUEUE_NAME_PREFIX => @active_job_queue_name_prefix,
+          Key::QUEUE_NAME_DELIMITER => @active_job_queue_name_delimiter,
+          Key::LAST_ENQUEUE_TIME => @last_enqueue_time,
         }
       end
 
@@ -474,7 +468,7 @@ module Sidekiq
       def save_last_enqueue_time
         Sidekiq.redis do |conn|
           # update last enqueue time
-          conn.hset redis_key, 'last_enqueue_time', @last_enqueue_time
+          conn.hset redis_key, Key::LAST_ENQUEUE_TIME, @last_enqueue_time
         end
       end
 
@@ -552,7 +546,7 @@ module Sidekiq
       end
 
       def sort_name
-        "#{status == "enabled" ? 0 : 1}_#{name}".downcase
+        "#{status == Status::ENABLED ? 0 : 1}_#{name}".downcase
       end
 
       private
@@ -602,7 +596,7 @@ module Sidekiq
 
       # Redis key for set of all cron jobs
       def self.jobs_key
-        "cron_jobs"
+        Key::CRON_JOBS
       end
 
       # Redis key for storing one cron job
@@ -641,6 +635,13 @@ module Sidekiq
         hash.inject([]){ |arr,kv| arr + [kv[0], kv[1]] }
       end
 
+      def self.resolve_name(name)
+        if name.is_a?(Hash)
+          name[:name] || name[Key::NAME]
+        else
+          name
+        end
+      end
     end
   end
 end
