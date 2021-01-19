@@ -38,6 +38,9 @@ module Sidekiq
       FETCH_MISSING_ARGS = "fetch_missing_args"
       WRAPPED = "wrapped"
 
+      JID = "jid"
+      ENQUEUED = "enqueued"
+
       JOB_CLASS = "job_class"
       JOB_ID = "job_id"
 

@@ -474,8 +474,8 @@ module Sidekiq
 
       def add_jid_history(jid)
         jid_history = {
-          jid: jid,
-          enqueued: @last_enqueue_time
+          Key::JID => jid,
+          Key::ENQUEUED => @last_enqueue_time
         }
         @history_size ||= (Sidekiq.options[:cron_history_size] || 10).to_i - 1
         Sidekiq.redis do |conn|
