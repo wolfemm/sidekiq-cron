@@ -93,23 +93,21 @@ module Sidekiq
       def queue_name_with_prefix
         return @queue unless is_active_job?
 
-        if !"#{@active_job_queue_name_delimiter}".empty?
-          queue_name_delimiter = @active_job_queue_name_delimiter
+        queue_name_delimiter = if !"#{@active_job_queue_name_delimiter}".empty?
+          @active_job_queue_name_delimiter
         elsif defined?(ActiveJob::Base) && defined?(ActiveJob::Base.queue_name_delimiter) && !ActiveJob::Base.queue_name_delimiter.empty?
-          queue_name_delimiter = ActiveJob::Base.queue_name_delimiter
+          ActiveJob::Base.queue_name_delimiter
         else
-          queue_name_delimiter = FALLBACK_QUEUE_NAME_DELIMITER
+          FALLBACK_QUEUE_NAME_DELIMITER
         end
 
         if !"#{@active_job_queue_name_prefix}".empty?
-          queue_name = "#{@active_job_queue_name_prefix}#{queue_name_delimiter}#{@queue}"
+          "#{@active_job_queue_name_prefix}#{queue_name_delimiter}#{@queue}"
         elsif defined?(ActiveJob::Base) && defined?(ActiveJob::Base.queue_name_prefix) && !"#{ActiveJob::Base.queue_name_prefix}".empty?
-          queue_name = "#{ActiveJob::Base.queue_name_prefix}#{queue_name_delimiter}#{@queue}"
+          "#{ActiveJob::Base.queue_name_prefix}#{queue_name_delimiter}#{@queue}"
         else
-          queue_name = @queue
+          @queue
         end
-
-        queue_name
       end
 
       # active job has different structure how it is loading data from sidekiq
