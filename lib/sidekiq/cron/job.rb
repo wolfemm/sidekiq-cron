@@ -7,7 +7,6 @@ require 'sidekiq/cron/support'
 
 module Sidekiq
   module Cron
-
     class Job
       include Util
       extend Util
@@ -15,6 +14,8 @@ module Sidekiq
       #how long we would like to store informations about previous enqueues
       REMEMBER_THRESHOLD = 24 * 60 * 60
       LAST_ENQUEUE_TIME_FORMAT = '%Y-%m-%d %H:%M:%S %z'
+
+      TRUTHY_VALUES = Set[true, "true", "t", "yes", "y", "1", 1].freeze
 
       #crucial part of whole enquing job
       def should_enque? time
@@ -286,7 +287,7 @@ module Sidekiq
         @args = args["args"].nil? ? [] : parse_args( args["args"] )
         @args += [Time.now.to_f] if args["date_as_argument"]
 
-        @active_job = args["active_job"] == true || ("#{args["active_job"]}" =~ (/^(true|t|yes|y|1)$/i)) == 0 || false
+        @active_job = TRUTHY_VALUES.include?(args["active_job"])
         @active_job_queue_name_prefix = args["queue_name_prefix"]
         @active_job_queue_name_delimiter = args["queue_name_delimiter"]
 
