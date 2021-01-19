@@ -365,13 +365,11 @@ module Sidekiq
       end
 
       def last_enqueue_time_from_redis
-        out = nil
         if fetch_missing_args
           Sidekiq.redis do |conn|
-            out = parse_enqueue_time(conn.hget(redis_key, Key::LAST_ENQUEUE_TIME)) rescue nil
+            parse_enqueue_time(conn.hget(redis_key, Key::LAST_ENQUEUE_TIME)) rescue nil
           end
         end
-        out
       end
 
       def jid_history_from_redis
@@ -379,8 +377,8 @@ module Sidekiq
           conn.lrange(jid_history_key, 0, -1) rescue nil
         end
 
-        # returns nil if out nil
-        out && out.map do |jid_history_raw|
+        # returns nil when out is nil
+        out&.map! do |jid_history_raw|
           Sidekiq.load_json(jid_history_raw)
         end
       end
@@ -531,11 +529,9 @@ module Sidekiq
       end
 
       def self.exists? name
-        out = false
         Sidekiq.redis do |conn|
-          out = conn.exists?(redis_key(name))
+          conn.exists?(redis_key(name))
         end
-        out
       end
 
       def exists?
