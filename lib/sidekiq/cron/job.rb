@@ -481,7 +481,8 @@ module Sidekiq
           conn.sadd self.class.jobs_key(@namespace), [redis_key]
 
           # Add information for this job!
-          conn.hset redis_key, to_hash.transform_values! { |v| v || '' }.flatten
+          conn.hset redis_key, self.class.hash_to_redis(to_hash)
+          # to_hash.transform_values! { |v| v || '' }.flatten
 
           # Add information about last time! - don't enqueue right after scheduler poller starts!
           time = Time.now.utc
@@ -511,26 +512,26 @@ module Sidekiq
 
         @history_size ||= Sidekiq::Cron.configuration.cron_history_size.to_i - 1
         Sidekiq.redis do |conn|
-          conn.lpush jid_history_key,
-                     Sidekiq.dump_json(jid_history)
-          # Keep only last 10 entries in a fifo manner.
-          conn.ltrim jid_history_key, 0, @history_size
+          conn.pipelined do |pipeline|
+            pipeline.lpush jid_history_key, Sidekiq.dump_json(jid_history)
+            # Keep only last 10 entries in a fifo manner.
+            pipeline.ltrim jid_history_key, 0, @history_size
+          end
         end
       end
 
       def destroy
         Sidekiq.redis do |conn|
-          # Delete from set.
-          conn.srem self.class.jobs_key(@namespace), [redis_key]
+          conn.pipelined do |pipeline|
+            # Delete from set.
+            pipeline.srem self.class.jobs_key(@namespace), [redis_key]
 
-          # Delete ran timestamps.
-          conn.del job_enqueued_key
-
-          # Delete jid_history.
-          conn.del jid_history_key
-
-          # Delete main job.
-          conn.del redis_key
+            pipeline.unlink(
+              job_enqueued_key, # ran timestamps
+              jid_history_key, # jid_history
+              redis_key # main job
+            )
+          end
         end
 
         Sidekiq.logger.info { "Cron Jobs - deleted job with name #{@name} from namespace #{@namespace}" }
@@ -575,11 +576,7 @@ module Sidekiq
       end
 
       def self.exists?(name, namespace = Sidekiq::Cron.configuration.default_namespace)
-        out = Sidekiq.redis do |conn|
-          conn.exists(redis_key(name, namespace))
-        end
-
-        [true, 1].include?(out)
+        Sidekiq.redis { |conn| conn.exists(redis_key(name, namespace)) }
       end
 
       def exists?
@@ -688,7 +685,15 @@ module Sidekiq
         Sidekiq.redis do |conn|
           if namespace == '*'
             namespaces = conn.keys(jobs_key(namespace))
-            namespaces.flat_map { |name| conn.smembers(name) }
+            # namespaces.flat_map { |name| conn.smembers(name) }
+
+            results = conn.pipelined do |pipeline|
+              namespaces.each do |name|
+                pipeline.smembers(name)
+              end
+            end
+
+            results.flatten
           else
             conn.smembers(jobs_key(namespace))
           end
@@ -698,12 +703,25 @@ module Sidekiq
       def self.migrate_old_jobs_if_needed!
         Sidekiq.redis do |conn|
           old_job_keys = conn.smembers('cron_jobs')
-          old_job_keys.each do |old_job|
-            old_job_hash = conn.hgetall(old_job)
-            old_job_hash[:namespace] = Sidekiq::Cron.configuration.default_namespace
-            create(old_job_hash)
-            conn.srem('cron_jobs', old_job)
+
+          conn.pipelined do |pipeline|
+            old_job_keys.each do |old_job|
+              old_job_hash = conn.hgetall(old_job)
+              old_job_hash[:namespace] = Sidekiq::Cron.configuration.default_namespace
+
+              create(old_job_hash)
+
+              pipeline.srem('cron_jobs', old_job)
+            end
           end
+        end
+      end
+
+      # Give Hash returns array for using it for redis.hmset
+      def self.hash_to_redis(hash)
+        hash.each_with_object([]) do |(key, value), result|
+          result << key
+          result << (value || "")
         end
       end
 

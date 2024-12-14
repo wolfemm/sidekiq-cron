@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # Module to access Sidekiq config
 module Sidekiq
   module Options

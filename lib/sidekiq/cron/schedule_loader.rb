@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 Sidekiq.configure_server do |config|
   schedule_file = Sidekiq::Cron.configuration.cron_schedule_file
 

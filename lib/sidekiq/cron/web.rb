@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "sidekiq/cron/web_extension"
 require "sidekiq/cron/job"
 require "sidekiq/cron/namespace"
