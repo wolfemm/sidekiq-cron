@@ -704,16 +704,14 @@ module Sidekiq
         Sidekiq.redis do |conn|
           old_job_keys = conn.smembers('cron_jobs')
 
-          conn.pipelined do |pipeline|
-            old_job_keys.each do |old_job|
-              old_job_hash = conn.hgetall(old_job)
-              old_job_hash[:namespace] = Sidekiq::Cron.configuration.default_namespace
+          old_job_keys.each do |old_job|
+            old_job_hash = conn.hgetall(old_job)
+            old_job_hash[:namespace] = Sidekiq::Cron.configuration.default_namespace
 
-              create(old_job_hash)
-
-              pipeline.srem('cron_jobs', old_job)
-            end
+            create(old_job_hash)
           end
+
+          conn.srem('cron_jobs', *old_job_keys)
         end
       end
 
