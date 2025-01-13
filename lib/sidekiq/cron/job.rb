@@ -711,7 +711,7 @@ module Sidekiq
             create(old_job_hash)
           end
 
-          conn.srem('cron_jobs', *old_job_keys)
+          conn.srem('cron_jobs', *old_job_keys) unless old_job_keys.empty?
         end
       end
 
